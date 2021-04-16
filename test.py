@@ -1,11 +1,18 @@
 class Solution:
-    def longestValidParentheses(self, s: str) -> int:
-        length = len(s)
-        dp = [0] * (length + 1)
-        for i in range(1, length + 1):
-            if s[i - 1] == ')':
-                current = i - 1 - dp[i - 1] - 1
-                if current >= 0 and s[current] == '(':
-                    dp[i] = dp[i - 1] + 2 + dp[current]
-
-        return max(dp)
+    def isValid(self, s: str) -> bool:
+        queue = []
+        for ch in s:
+            if ch == '(' or ch == '{' or ch == '[':
+                queue.append(ch)
+            else:
+                if len(queue) == 0:
+                    return False
+                if ch == ')' and queue[-1] == '(':
+                    queue.pop()
+                elif ch == '}' and queue[-1] == '{':
+                    queue.pop()
+                elif ch == ']' and queue[-1] == '[':
+                    queue.pop()
+                else:
+                    return False
+        return len(queue) == 0

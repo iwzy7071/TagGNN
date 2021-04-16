@@ -1,18 +1,21 @@
 import torch
 import numpy as np
-from dataloader import DataLoader
+from Data import Data
 from utils import evalulate_one_batch, uniform_sample, train_shuffle, minibatch
 from torch import optim
 import logging
+from tqdm import tqdm
 
 from model.BaseModel import BaseModel
 from model.ModelFactory import ModelFactory
 
 
-def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: optim.Optimizer):
+
+def Train(config: dict, model: BaseModel, dataset: Data, optimizer: optim.Optimizer):
     model = model.train()
     batch_size, weight_decay = config["train_batch_size"], config["weight_decay"]
     train_pairs = uniform_sample(dataloader)
+
     users = torch.Tensor(train_pairs[:, 0]).long()
     pos_items = torch.Tensor(train_pairs[:, 1]).long()
     neg_items = torch.Tensor(train_pairs[:, 2]).long()
@@ -25,10 +28,10 @@ def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: opt
     total_batch = len(users) // batch_size + 1
     average_loss = 0.0
 
-    for batch_users, batch_pos, batch_neg in minibatch(users, pos_items, neg_items, batch_size=batch_size):
-        loss, reg_loss = model.calculate_loss(batch_users, batch_pos, batch_neg)
+    for batch_users, batch_pos, batch_neg in tqdm(minibatch(users, pos_items, neg_items, batch_size=batch_size)):
+        mf_loss, reg_loss = model.calculate_loss(batch_users, batch_pos, batch_neg)
         reg_loss = reg_loss * weight_decay
-        loss = loss + reg_loss
+        loss = mf_loss + reg_loss
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -38,7 +41,7 @@ def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: opt
 
 
 @torch.no_grad()
-def Test(config: dict, model: BaseModel, dataloader: DataLoader):
+def Test(config: dict, model: BaseModel, dataloader: Data):
     model = model.eval()
     topk, batch_size = config["topks"], config["test_batch_size"]
     results = {'precision': np.zeros(len(topk)), 'recall': np.zeros(len(topk)), 'ndcg': np.zeros(len(topk))}
@@ -78,15 +81,17 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 
 if __name__ == '__main__':
-    config = dict(epoch=500, topks=[20], name="DGCF", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=0.03,
-                  train_batch_size=1024, n_iter=6, num_layers=3, dropout=0.35, ncaps=8,
-                  test_batch_size=2048, weight_decay=1e-1, nfeat=128)
+    config = dict(epoch=500, topks=[20], name="DGCF", dataset="/home/wzy/LightGCN/data/amazon_book", lr=5e-3,
+                  train_batch_size=4096, n_iter=2, num_layers=3, dropout=0, ncaps=4, min_inter=15,
+                  test_batch_size=2048, weight_decay=0.1, nfeat=64, split_ratios=[0.8, 0.2])
     logging.basicConfig(level=logging.INFO, filename=f'{config["name"]}.log', filemode='w')
-    dataloader = DataLoader(dir_path=config["dataset"])
+    console = logging.StreamHandler()
+    logging.getLogger('').addHandler(console)
+
+    dataloader = Data(dir_path=config["dataset"], split_ratios=config['split_ratios'],
+                      min_inter=config['min_inter'])
     model = ModelFactory.get_model(config["name"], config, dataloader).cuda()
     optimizer = optim.Adam(model.parameters(), lr=config['lr'])
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20)
-
 
     for epoch in range(config["epoch"]):
         loss = Train(config, model, dataloader, optimizer)
@@ -96,4 +101,3 @@ if __name__ == '__main__':
             logging.info(f"epoch:{epoch} pred:{pred} recall:{recall} ndcg:{ndcg} loss:{loss}")
         else:
             logging.info(f"epoch:{epoch} loss:{loss}")
-        scheduler.step()

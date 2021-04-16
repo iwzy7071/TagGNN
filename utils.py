@@ -1,5 +1,5 @@
 import numpy as np
-from dataloader import DataLoader
+from Data import Data
 
 
 def _get_label_(test_data, pred_data):
@@ -59,8 +59,8 @@ def evalulate_one_batch(x, top_k):
             'ndcg': np.array(ndcg)}
 
 
-def uniform_sample(dataloader: DataLoader):
-    user_num = dataloader.train_data_size
+def uniform_sample(dataloader: Data):
+    user_num = dataloader.train_dsize
     users = np.random.randint(0, dataloader.n_user, user_num)
     train_pos_items = dataloader.train_pos_items
     ans = []
