@@ -8,7 +8,6 @@ from os.path import join, exists as path_exist
 from sklearn.preprocessing import LabelEncoder
 from scipy.sparse import csr_matrix, save_npz, load_npz
 from collections import Counter
-from torch.utils.data.dataset import Dataset
 
 
 class Data(object):
@@ -21,8 +20,6 @@ class Data(object):
         self.test_Gmatrix = None
         self.tag_tables = None
         self._prepare_matrix_(dir_path, min_inter, split_ratios)
-        self.train_pos_items = self.get_user_pos_items(list(range(self.n_user)))
-        self.test_dict = self._generate_test_data_()
         print("用户数量:", self.n_user, "物品数量:", self.n_item, "训练交互数量:", self.train_dsize,
               "稀疏程度:", self.train_dsize / self.n_item / self.n_user, "测试交互数量:", self.test_dsize)
 
@@ -162,21 +159,6 @@ class Data(object):
         logging.info("完成训练图和测试图的生成")
         return train_Gmaxtrix, test_Gmaxtrix
 
-    def _generate_test_data_(self):
-        test_dict = {}
-        for uid in range(self.test_Gmatrix.shape[0]):
-            iids = self.test_Gmatrix.getrow(uid).indices.tolist()
-            if len(iids) > 0:
-                test_dict[uid] = iids
-        return test_dict
-
-    def get_user_pos_items(self, users):
-        posItems = []
-        for user in users:
-            pos_item = self.train_Gmatrix[user].nonzero()[1].tolist()
-            posItems.append(pos_item)
-        return posItems
-
     def _split_by_ratio_(self, inter_feat: pd.DataFrame, ratios: list):
         grouped_inter_feat_index = self._grouped_index_(inter_feat["user_id:token"].to_numpy())
         next_index = [[] for _ in range(len(ratios))]
@@ -217,26 +199,3 @@ class Data(object):
                 if inter_num[id_] < min_num:
                     ids.add(id_)
         return ids
-
-
-class RSDataset(Dataset):
-    def __init__(self, Gmatrix: csr_matrix):
-        self.Gmatrix = Gmatrix
-
-    def __len__(self):
-        pass
-
-    def __getitem__(self, item):
-        pass
-
-
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    dataloader = Data(dir_path="/home/wzy/LightGCN/data/amazon_toy", split_ratios=[0.8, 0.2], min_inter=10)
-
-# tag_tables = sorted(tag_tables.items(), key=lambda x: len(x[1]), reverse=True)
-# tag_tables_split = int(0.1 * len(tag_tables))
-# tag_tables = tag_tables[tag_tables_split:]
-# tag_tables = [(str(table[0]), table[1]) for table in tag_tables]
-# tag_tables = dict(tag_tables)
-# json.dump(tag_tables, open(tag_tables_path, 'w'))
