@@ -169,10 +169,11 @@ class Data(object):
                 index.extend(grouped_index[start:end])
 
         train_feat, test_feat = [inter_feat.loc[index] for index in next_index]
-        ban_items = list(set(test_feat["item_id:token"]) - set(train_feat["item_id:token"]))
-        dropped_index = test_feat["item_id:token"].isin(ban_items)
-        dropped_index = test_feat.index[dropped_index]
-        test_feat.drop(dropped_index, inplace=True)
+        # 保留一些冷启动的物品 从而提高TagGCN的模型性能
+        # ban_items = list(set(test_feat["item_id:token"]) - set(train_feat["item_id:token"]))
+        # dropped_index = test_feat["item_id:token"].isin(ban_items)
+        # dropped_index = test_feat.index[dropped_index]
+        # test_feat.drop(dropped_index, inplace=True)
         return train_feat, test_feat
 
     def _calculate_split_ids_(self, tot, ratios):
