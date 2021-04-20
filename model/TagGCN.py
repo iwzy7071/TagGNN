@@ -98,7 +98,7 @@ class RoutingLayers(nn.Module):
             ncap_embed = torch.sparse.mm(src_trg2eid, edge_val)
             # [num_node,num_node] x [num_node,cap_dim] = [num_node,cap_dim]
             new_item_ncap_embed = torch.sparse.mm(new_iid_edges, ncap_embed)
-            ncap_embed = ncap_embed + new_item_ncap_embed
+            # FIXME: ncap_embed = ncap_embed + new_item_ncap_embed
             new_x.append(ncap_embed)
             # [num_edge,cap_dim]
             src_trg_ncap_embed = torch.index_select(ncap_embed, dim=0, index=src_trg)

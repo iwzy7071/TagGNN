@@ -66,9 +66,9 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 
 if __name__ == '__main__':
-    config = dict(epoch=500, topks=[20], name="TagGCN", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=5e-3,
-                  train_batch_size=4096, n_iter=2, num_layers=3, dropout=0, ncaps=4, min_inter=10,
-                  test_batch_size=1024, weight_decay=0.1, nfeat=64, split_ratios=[0.8, 0.2])
+    config = dict(epoch=500, topks=[20], name="DGCF", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=5e-3,
+                  train_batch_size=4096, n_iter=2, num_layers=1, dropout=0, ncaps=4, min_inter=5,
+                  test_batch_size=1024, weight_decay=1e-3, nfeat=64, split_ratios=[0.8, 0.2])
     logging.basicConfig(level=logging.INFO, filename=f'{config["name"]}.log', filemode='w')
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
