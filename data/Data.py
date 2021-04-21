@@ -11,7 +11,7 @@ from collections import Counter
 
 
 class Data(object):
-    def __init__(self, dir_path: str, split_ratios: list, min_inter: int):
+    def __init__(self, dir_path: str, split_ratios: list, user_min_inter: int, item_min_inter:int):
         self.n_item = 0
         self.n_user = 0
         self.train_dsize = 0
@@ -19,11 +19,11 @@ class Data(object):
         self.train_Gmatrix = None
         self.test_Gmatrix = None
         self.tag_tables = None
-        self._prepare_matrix_(dir_path, min_inter, split_ratios)
+        self._prepare_matrix_(dir_path, user_min_inter, item_min_inter, split_ratios)
         print("用户数量:", self.n_user, "物品数量:", self.n_item, "训练交互数量:", self.train_dsize,
               "稀疏程度:", self.train_dsize / self.n_item / self.n_user, "测试交互数量:", self.test_dsize)
 
-    def _prepare_matrix_(self, dir_path, min_inter, split_ratios):
+    def _prepare_matrix_(self, dir_path, user_min_inter, item_min_inter, split_ratios):
         train_Gmatrix_path = join(dir_path, "train_Gmatrix.npz")
         test_Gmatrix_path = join(dir_path, "test_Gmatrix.npz")
         tag_tables_path = join(dir_path, "tag_tables.json")
@@ -41,7 +41,7 @@ class Data(object):
             self.test_Gmatrix = test_Gmaxtrix
             return
 
-        inter_feat = self._generate_cleaned_inter_feat_(dir_path, min_inter)
+        inter_feat = self._generate_cleaned_inter_feat_(dir_path, user_min_inter, item_min_inter)
         inter_feat, tag_tables = self._encode_feat_label_(dir_path, tag_tables_path, inter_feat)
         train_feat, test_feat = self._split_by_ratio_(inter_feat, split_ratios)
         self.train_Gmatrix, self.test_Gmatrix = self._build_matrix_(train_feat, test_feat)
@@ -49,7 +49,7 @@ class Data(object):
         save_npz(train_Gmatrix_path, self.train_Gmatrix)
         save_npz(test_Gmatrix_path, self.test_Gmatrix)
 
-    def _generate_cleaned_inter_feat_(self, dir_path: str, min_inter: int) -> pd.DataFrame:
+    def _generate_cleaned_inter_feat_(self, dir_path: str, user_min_inter, item_min_inter) -> pd.DataFrame:
         logging.info("开始生成清洗后的数据表")
         inter_feat = pd.read_csv(join(dir_path, "inter"), sep="\t", usecols=["user_id:token", "item_id:token"], )
         user_feat = pd.DataFrame(inter_feat["user_id:token"]).drop_duplicates()
@@ -59,9 +59,9 @@ class Data(object):
 
         while True:
             ban_users = self._get_illegal_ids_by_inter_num_("user_id:token", user_feat, user_inter_num,
-                                                            min_num=min_inter)
+                                                            min_num=user_min_inter)
             ban_items = self._get_illegal_ids_by_inter_num_("item_id:token", item_feat, item_inter_num,
-                                                            min_num=min_inter)
+                                                            min_num=item_min_inter)
             if len(ban_users) == 0 and len(ban_items) == 0:
                 break
 

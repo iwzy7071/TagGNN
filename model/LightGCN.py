@@ -71,7 +71,7 @@ class LightGCN(BaseModel):
         pos_ego_embeddings = self.item_embedding(pos_item)
         neg_ego_embeddings = self.item_embedding(neg_item)
         reg_loss = self.reg_loss(u_ego_embeddings, pos_ego_embeddings, neg_ego_embeddings)
-        return mf_loss, reg_loss
+        return mf_loss + 1e-3 * reg_loss
 
     def get_user_ratings(self, user):
         user_embeddings, item_embeddings = self.forward()

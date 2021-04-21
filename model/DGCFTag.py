@@ -23,13 +23,14 @@ class DGCFTAG(BaseModel):
         self.n_iterations = n_iter
         self.num_layers = num_layers
         self.dropout = dropout
-        self.tid2iid, self.iid2tid = self._prepare_node_information_(tag_table, drop_tag_ratio)
-        self.tag_topk = 1
+        iid_tedge, tid_tedge = self._prepare_node_information_(tag_table, drop_tag_ratio)
+        iid_tedge = [iid + self.num_users for iid in iid_tedge]
+        tid_tedge = [tid + self.num_users + self.num_items for tid in tid_tedge]
         row = interaction_matrix.row.tolist()
         col = interaction_matrix.col.tolist()
-        col = [item_index + self.num_users for item_index in col]
-        all_h_list = row + col
-        all_t_list = col + row
+        col = [iid + self.num_users for iid in col]
+        all_h_list = row + col + iid_tedge + tid_tedge
+        all_t_list = col + row + tid_tedge + iid_tedge
         num_edge = len(all_h_list)
         edge_ids = range(num_edge)
         self.all_h_list = torch.LongTensor(all_h_list).to('cuda')
@@ -38,7 +39,7 @@ class DGCFTAG(BaseModel):
         head2edge = torch.LongTensor([edge_ids, all_h_list]).to('cuda')
         tail2edge = torch.LongTensor([edge_ids, all_t_list]).to('cuda')
         val_one = torch.ones_like(self.all_h_list).float().to('cuda')
-        num_node = self.num_users + self.num_items
+        num_node = self.num_users + self.num_items + self.num_tags
         self.edge2head_mat = self._build_sparse_tensor(edge2head, val_one, (num_node, num_edge))
         self.head2edge_mat = self._build_sparse_tensor(head2edge, val_one, (num_edge, num_node))
         self.tail2edge_mat = self._build_sparse_tensor(tail2edge, val_one, (num_edge, num_node))
@@ -47,6 +48,7 @@ class DGCFTAG(BaseModel):
 
         self.user_embedding = nn.Embedding(self.num_users, nfeat)
         self.item_embedding = nn.Embedding(self.num_items, nfeat)
+        self.tag_embedding = nn.Embedding(self.num_tags, nfeat)
         self.softmax = torch.nn.Softmax(dim=1)
         self.dropout = nn.Dropout(p=0.5)
         self.mf_loss = BPRLoss()
@@ -76,7 +78,8 @@ class DGCFTAG(BaseModel):
         return factor_edge_weight
 
     def forward(self):
-        ego_embeddings = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)
+        ego_embeddings = torch.cat([self.user_embedding.weight, self.item_embedding.weight, self.tag_embedding.weight],
+                                   dim=0)
         all_embeddings = [ego_embeddings.unsqueeze(1)]
         A_values = torch.ones((self.num_edge, self.ncaps)).to('cuda')
         A_values = Variable(A_values, requires_grad=True)
@@ -89,46 +92,12 @@ class DGCFTAG(BaseModel):
                 factor_edge_weight = self.build_matrix(A_values=A_values)
                 for i in range(0, self.ncaps):
                     edge_weight = factor_edge_weight[i]
-
-                    """
-                    BEGIN TAG PART
-                    """
-                    # [src + trg, num_edge] x [num_edge, 1] = [src + trg, 1]
-                    src_trg_select = torch.sparse.mm(self.edge2head_mat, edge_weight)
-                    iid_select = src_trg_select[self.num_users:]
-                    tag_count = torch.sparse.mm(self.tid2iid, iid_select)
-                    tag_count = tag_count.squeeze(dim=-1)
-                    _, top_count_tag_index = torch.topk(tag_count, k=self.tag_topk, dim=0, largest=True)
-                    selected_tags = torch.zeros(self.num_tags).unsqueeze(dim=-1).to('cuda')
-                    selected_tags[top_count_tag_index] = 1
-
-                    new_add_iids = torch.sparse.mm(self.iid2tid, selected_tags).squeeze(dim=1)
-                    new_add_iids = torch.nonzero(new_add_iids)
-                    new_add_iids = self.num_users + new_add_iids
-                    new_iid_edges = torch.combinations(new_add_iids.squeeze(dim=1))
-                    iid_src, iid_tid = new_iid_edges[:, 0], new_iid_edges[:, 1]
-                    new_iid_length = iid_src.size()[0]
-                    iid_src, iid_tid = iid_src.unsqueeze(dim=0), iid_tid.unsqueeze(dim=0)
-                    new_iid_edges = torch.cat([iid_src, iid_tid], dim=0).long()
-                    val_one = torch.ones(new_iid_length).to('cuda')
-                    val_one = self.dropout(val_one)
-                    val_one = torch.clamp(val_one, max=1)
-                    # [num_node,num_node]
-                    new_iid_edges = torch.sparse.FloatTensor(new_iid_edges, val_one,
-                                                             (self.num_node, self.num_node)).to('cuda')
-                    """
-                    END TAG PART
-                    """
                     # [num_edge,num_node] x [num_node,cap_dim] = [num_edge, cap_dim]
                     edge_val = torch.sparse.mm(self.tail2edge_mat, ego_layer_embeddings[i])
                     distanged_edge_val = edge_val * edge_weight
                     # [num_node, num_edge] x [num_edge, cap_dim] = [num_edge, cap_dim]
                     factor_embeddings = torch.sparse.mm(self.edge2head_mat, distanged_edge_val)
                     # [num_node, cap_dim]
-                    new_factor_embeddings = torch.sparse.mm(self.edge2head_mat, edge_val)
-                    new_factor_embeddings = torch.sparse.mm(new_iid_edges, new_factor_embeddings)
-                    factor_embeddings = factor_embeddings + new_factor_embeddings
-
                     iter_embeddings.append(factor_embeddings)
                     if t == self.n_iterations - 1:
                         layer_embeddings = iter_embeddings
@@ -149,7 +118,7 @@ class DGCFTAG(BaseModel):
         all_embeddings = torch.cat(all_embeddings, dim=1)
         all_embeddings = torch.mean(all_embeddings, dim=1, keepdim=False)
         u_g_embeddings = all_embeddings[:self.num_users, :]
-        i_g_embeddings = all_embeddings[self.num_users:, :]
+        i_g_embeddings = all_embeddings[self.num_users:self.num_users + self.num_items, :]
 
         return u_g_embeddings, i_g_embeddings
 
@@ -187,10 +156,4 @@ class DGCFTAG(BaseModel):
                 src.append(int(iid))
             trg.extend([int(tid)] * len(iids))
 
-        val_one = torch.ones(len(src))
-        iid2tid = torch.LongTensor([src, trg])
-        iid2tid = torch.sparse.FloatTensor(iid2tid, val_one, (self.num_items, self.num_tags)).to('cuda')
-
-        tid2iid = torch.LongTensor([trg, src])
-        tid2iid = torch.sparse.FloatTensor(tid2iid, val_one, (self.num_tags, self.num_items)).to('cuda')
-        return tid2iid, iid2tid
+        return src, trg

@@ -19,9 +19,7 @@ def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: opt
     for batch_users, batch_pos, batch_neg in dataloader:
         batch_users = batch_users.cuda()
         batch_pos, batch_neg = batch_pos.cuda(), batch_neg.cuda()
-        mf_loss, reg_loss = model.calculate_loss(batch_users, batch_pos, batch_neg)
-        reg_loss = reg_loss * weight_decay
-        loss = mf_loss + reg_loss
+        loss = model.calculate_loss(batch_users, batch_pos, batch_neg)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -66,15 +64,16 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 
 if __name__ == '__main__':
-    config = dict(epoch=500, topks=[20], name="DGCF", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=5e-3,
-                  train_batch_size=4096, n_iter=2, num_layers=1, dropout=0, ncaps=4, min_inter=5,
-                  test_batch_size=1024, weight_decay=1e-3, nfeat=64, split_ratios=[0.8, 0.2])
+    config = dict(epoch=500, topks=[20], name="LightGCN", dataset="/home/wzy/LightGCN/data/amazon_book", lr=5e-3,
+                  train_batch_size=1024, n_iter=2, num_layers=1, dropout=0, ncaps=4, item_min_inter=20,
+                  user_min_inter=20, test_batch_size=1024, weight_decay=1e-3, nfeat=64, split_ratios=[0.8, 0.2])
     logging.basicConfig(level=logging.INFO, filename=f'{config["name"]}.log', filemode='w')
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
     logging.info(config)
 
-    data = Data(dir_path=config["dataset"], split_ratios=config['split_ratios'], min_inter=config['min_inter'])
+    data = Data(dir_path=config["dataset"], split_ratios=config['split_ratios'], item_min_inter=config['item_min_inter'],
+                user_min_inter=config['user_min_inter'])
     train_dataset = RSTrainDataset(data.train_Gmatrix)
     test_dataset = RSTestDataset(data.train_Gmatrix, data.test_Gmatrix)
     train_dataloader = DataLoader(train_dataset, batch_size=config["train_batch_size"], num_workers=8, shuffle=True)

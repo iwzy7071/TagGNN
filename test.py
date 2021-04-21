@@ -1,2 +1,1 @@
-class Solution:
-    def strStr(self, haystack: str, needle: str) -> int:
+from recbole.model.general_recommender.dgcf import DGCF
