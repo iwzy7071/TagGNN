@@ -1,5 +1,4 @@
 import numpy as np
-from Data import Data
 
 
 def _get_label_(test_data, pred_data):
@@ -29,7 +28,6 @@ def _ndcg_predict_(test_data, r, k):
     """
     assert len(r) == len(test_data)
     pred_data = r[:, :k]
-
     test_matrix = np.zeros((len(pred_data), k))
     for i, items in enumerate(test_data):
         length = k if k <= len(items) else len(items)
@@ -57,50 +55,3 @@ def evalulate_one_batch(x, top_k):
     return {'recall': np.array(recall),
             'precision': np.array(pre),
             'ndcg': np.array(ndcg)}
-
-
-def uniform_sample(dataloader: Data):
-    user_num = dataloader.train_dsize
-    users = np.random.randint(0, dataloader.n_user, user_num)
-    train_pos_items = dataloader.train_pos_items
-    ans = []
-    for index, uid in enumerate(users):
-        user_pos_items = train_pos_items[uid]
-        if len(user_pos_items) == 0: continue
-        pos_item_index = np.random.randint(0, len(user_pos_items))
-        pos_item = user_pos_items[pos_item_index]
-        while True:
-            neg_item = np.random.randint(0, dataloader.n_item)
-            if neg_item not in train_pos_items:
-                break
-        ans.append([uid, pos_item, neg_item])
-    return np.array(ans)
-
-
-def train_shuffle(*arrays, **kwargs):
-    require_indices = kwargs.get('indices', False)
-    if len(set(len(x) for x in arrays)) != 1:
-        raise ValueError('All inputs to shuffle must have '
-                         'the same length.')
-    shuffle_indices = np.arange(len(arrays[0]))
-    np.random.shuffle(shuffle_indices)
-    if len(arrays) == 1:
-        result = arrays[0][shuffle_indices]
-    else:
-        result = tuple(x[shuffle_indices] for x in arrays)
-    if require_indices:
-        return result, shuffle_indices
-    else:
-        return result
-
-
-def minibatch(*tensors, **kwargs):
-    batch_size = kwargs.get('batch_size')
-
-    if len(tensors) == 1:
-        tensor = tensors[0]
-        for i in range(0, len(tensor), batch_size):
-            yield tensor[i:i + batch_size]
-    else:
-        for i in range(0, len(tensors[0]), batch_size):
-            yield tuple(x[i:i + batch_size] for x in tensors)
