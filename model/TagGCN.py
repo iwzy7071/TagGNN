@@ -150,6 +150,8 @@ class TagGCN(BaseModel):
         self.src_trg2eid = torch.sparse.FloatTensor(src_trg2eid, val_one, (self.num_nodes, self.num_edges)).to('cuda')
         self.eid2src_trg = torch.sparse.FloatTensor(eid2src_trg, val_one, (self.num_edges, self.num_nodes)).to('cuda')
         self.eid2trg_src = torch.sparse.FloatTensor(eid2trg_src, val_one, (self.num_edges, self.num_nodes)).to('cuda')
+        print(self.eid2trg_src)
+        exit()
         self.edge_ncaps = Variable(torch.ones((self.num_edges, self.num_caps)).to('cuda'), requires_grad=True)
         self.convs = []
 

@@ -13,7 +13,6 @@ from data.Dataset import RSTrainDataset, RSTestDataset, collate_fn
 
 def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: optim.Optimizer):
     model = model.train()
-    weight_decay = config["weight_decay"]
     average_loss = 0.0
 
     for batch_users, batch_pos, batch_neg in dataloader:
@@ -64,7 +63,7 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 
 if __name__ == '__main__':
-    config = dict(epoch=500, topks=[20], name="LightGCN", dataset="/home/wzy/LightGCN/data/amazon_book", lr=5e-3,
+    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=5e-3,
                   train_batch_size=1024, n_iter=2, num_layers=1, dropout=0, ncaps=4, item_min_inter=20,
                   user_min_inter=20, test_batch_size=1024, weight_decay=1e-3, nfeat=64, split_ratios=[0.8, 0.2])
     logging.basicConfig(level=logging.INFO, filename=f'{config["name"]}.log', filemode='w')
