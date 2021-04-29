@@ -11,7 +11,8 @@ from collections import Counter
 
 
 class Data(object):
-    def __init__(self, dir_path: str, split_ratios: list, user_min_inter: int, item_min_inter:int):
+    def __init__(self, user_column_name, item_column_name, tag_column_name, dir_path: str, split_ratios: list,
+                 user_min_inter: int, item_min_inter: int):
         self.n_item = 0
         self.n_user = 0
         self.train_dsize = 0
@@ -19,6 +20,10 @@ class Data(object):
         self.train_Gmatrix = None
         self.test_Gmatrix = None
         self.tag_tables = None
+        self.user_column_name = user_column_name
+        self.item_column_name = item_column_name
+        self.tag_column_name = tag_column_name
+
         self._prepare_matrix_(dir_path, user_min_inter, item_min_inter, split_ratios)
         print("用户数量:", self.n_user, "物品数量:", self.n_item, "训练交互数量:", self.train_dsize,
               "稀疏程度:", self.train_dsize / self.n_item / self.n_user, "测试交互数量:", self.test_dsize)
@@ -51,31 +56,32 @@ class Data(object):
 
     def _generate_cleaned_inter_feat_(self, dir_path: str, user_min_inter, item_min_inter) -> pd.DataFrame:
         logging.info("开始生成清洗后的数据表")
-        inter_feat = pd.read_csv(join(dir_path, "inter"), sep="\t", usecols=["user_id:token", "item_id:token"], )
-        user_feat = pd.DataFrame(inter_feat["user_id:token"]).drop_duplicates()
-        item_feat = pd.DataFrame(inter_feat["item_id:token"]).drop_duplicates()
-        user_inter_num = Counter(inter_feat["user_id:token"].values)
-        item_inter_num = Counter(inter_feat["item_id:token"].values)
+        inter_feat = pd.read_csv(join(dir_path, "inter"), sep="\t",
+                                 usecols=[self.user_column_name, self.item_column_name], dtype=str)
+        user_feat = pd.DataFrame(inter_feat[self.user_column_name]).drop_duplicates()
+        item_feat = pd.DataFrame(inter_feat[self.item_column_name]).drop_duplicates()
+        user_inter_num = Counter(inter_feat[self.user_column_name].values)
+        item_inter_num = Counter(inter_feat[self.item_column_name].values)
 
         while True:
-            ban_users = self._get_illegal_ids_by_inter_num_("user_id:token", user_feat, user_inter_num,
+            ban_users = self._get_illegal_ids_by_inter_num_(self.user_column_name, user_feat, user_inter_num,
                                                             min_num=user_min_inter)
-            ban_items = self._get_illegal_ids_by_inter_num_("item_id:token", item_feat, item_inter_num,
+            ban_items = self._get_illegal_ids_by_inter_num_(self.item_column_name, item_feat, item_inter_num,
                                                             min_num=item_min_inter)
             if len(ban_users) == 0 and len(ban_items) == 0:
                 break
 
             if user_feat is not None:
-                dropped_user = user_feat["user_id:token"].isin(ban_users)
+                dropped_user = user_feat[self.user_column_name].isin(ban_users)
                 user_feat.drop(user_feat.index[dropped_user], inplace=True)
 
             if item_feat is not None:
-                dropped_item = item_feat["item_id:token"].isin(ban_items)
+                dropped_item = item_feat[self.item_column_name].isin(ban_items)
                 item_feat.drop(item_feat.index[dropped_item], inplace=True)
 
             dropped_inter = pd.Series(False, index=inter_feat.index)
-            user_inter = inter_feat["user_id:token"]
-            item_inter = inter_feat["item_id:token"]
+            user_inter = inter_feat[self.user_column_name]
+            item_inter = inter_feat[self.item_column_name]
             dropped_inter |= user_inter.isin(ban_users)
             dropped_inter |= item_inter.isin(ban_items)
             user_inter_num -= Counter(user_inter[dropped_inter].values)
@@ -83,35 +89,36 @@ class Data(object):
             dropped_index = inter_feat.index[dropped_inter]
             logging.info(f'剔除了[{len(dropped_index)}]个交互关系')
             inter_feat.drop(dropped_index, inplace=True)
-        print(inter_feat)
         logging.info("完成用户和物品交互关系的过滤")
         inter_feat.reset_index(drop=True, inplace=True)
         return inter_feat
 
     def _encode_feat_label_(self, dir_path: str, tag_table_path: str, inter_feat: pd.DataFrame):
-        item_df = pd.read_csv(join(dir_path, "item"), sep="\t", usecols=["item_id:token", "categories:token_seq"],
+        item_df = pd.read_csv(join(dir_path, "item"), sep="\t", usecols=[self.item_column_name, self.tag_column_name],
                               dtype=str)
         inter_feat = pd.merge(inter_feat, item_df, how='inner')
 
         user_encoder = LabelEncoder()
-        inter_feat["user_id:token"] = user_encoder.fit_transform(inter_feat["user_id:token"].values.tolist())
+        inter_feat[self.user_column_name] = user_encoder.fit_transform(
+            inter_feat[self.user_column_name].values.tolist())
         logging.info("完成用户id的转换")
 
         item_encoder = LabelEncoder()
-        inter_feat["item_id:token"] = item_encoder.fit_transform(inter_feat["item_id:token"].values.tolist())
+        inter_feat[self.item_column_name] = item_encoder.fit_transform(
+            inter_feat[self.item_column_name].values.tolist())
         logging.info("完成物品id的转换")
 
         tag_encoder = LabelEncoder()
-        inter_feat["categories:token_seq"] = inter_feat["categories:token_seq"].apply(lambda x: x.split(", "))
-        tag_list = list(itertools.chain(*(list(inter_feat["categories:token_seq"].values))))
+        inter_feat[self.tag_column_name] = inter_feat[self.tag_column_name].apply(lambda x: str(x).split(" "))
+        tag_list = list(itertools.chain(*(list(inter_feat[self.tag_column_name].values))))
         tag_encoder.fit(tag_list)
-        inter_feat["categories:token_seq"] = inter_feat["categories:token_seq"].apply(
+        inter_feat[self.tag_column_name] = inter_feat[self.tag_column_name].apply(
             lambda x: list(tag_encoder.transform(x)))
         logging.info("完成标签id的转换")
 
         tag_tables = {}
         for iid, tids in inter_feat.groupby("item_id:token"):
-            tids = tids["categories:token_seq"].values[0]
+            tids = tids[self.tag_column_name].values[0]
             for tid in tids:
                 tag_tables.setdefault(int(tid), set()).add(int(iid))
         logging.info("完成Tag字典的生成")
@@ -125,23 +132,23 @@ class Data(object):
         json.dump(tag_tables, open(tag_table_path, 'w'))
 
         logging.info("完成图数据表的生成，保存user、item、tag的映射关系")
-        del inter_feat["categories:token_seq"]
+        del inter_feat[self.tag_column_name]
         return inter_feat, tag_tables
 
     def _build_matrix_(self, train_feat: pd.DataFrame, test_feat: pd.DataFrame):
         train_user, train_item = [], []
         test_user, test_item = [], []
 
-        for uid, iids in train_feat.groupby("user_id:token"):
-            iids = list(iids["item_id:token"].values)
+        for uid, iids in train_feat.groupby(self.user_column_name):
+            iids = list(iids[self.item_column_name].values)
             train_user.extend([uid] * len(iids))
             train_item.extend(iids)
             self.train_dsize += len(iids)
             self.n_user = max(self.n_user, uid)
             self.n_item = max(self.n_item, max(iids))
 
-        for uid, iids in test_feat.groupby("user_id:token"):
-            iids = list(iids["item_id:token"].values)
+        for uid, iids in test_feat.groupby(self.user_column_name):
+            iids = list(iids[self.item_column_name].values)
             test_user.extend([uid] * len(iids))
             test_item.extend(iids)
             self.test_dsize += len(iids)
@@ -160,7 +167,7 @@ class Data(object):
         return train_Gmaxtrix, test_Gmaxtrix
 
     def _split_by_ratio_(self, inter_feat: pd.DataFrame, ratios: list):
-        grouped_inter_feat_index = self._grouped_index_(inter_feat["user_id:token"].to_numpy())
+        grouped_inter_feat_index = self._grouped_index_(inter_feat[self.user_column_name].to_numpy())
         next_index = [[] for _ in range(len(ratios))]
         for grouped_index in grouped_inter_feat_index:
             tot_cnt = len(grouped_index)

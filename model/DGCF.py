@@ -12,7 +12,7 @@ from model.BaseModel import BaseModel
 
 class DGCF(BaseModel):
     def __init__(self, num_users: int, num_items: int, nfeat: int, ncaps: int, n_iter: int, num_layers: int,
-                 dropout: float, interaction_matrix: csr_matrix, tag_table: dict):
+                 dropout: float, interaction_matrix: csr_matrix, tag_table: dict, reg_w: float):
         super(DGCF, self).__init__()
         interaction_matrix = interaction_matrix.tocoo().astype(np.float32)
         self.num_items = num_items
@@ -48,6 +48,7 @@ class DGCF(BaseModel):
         self.softmax = torch.nn.Softmax(dim=1)
         self.mf_loss = BPRLoss()
         self.reg_loss = EmbLoss()
+        self.reg_w = reg_w
         self.apply(xavier_normal_initialization)
 
     def _build_sparse_tensor(self, indices, values, size):
@@ -127,7 +128,7 @@ class DGCF(BaseModel):
         pos_ego_embeddings = self.item_embedding(pos_item)
         neg_ego_embeddings = self.item_embedding(neg_item)
         reg_loss = self.reg_loss(u_ego_embeddings, pos_ego_embeddings, neg_ego_embeddings)
-        return mf_loss + 1e-3 * reg_loss
+        return mf_loss + self.reg_w * reg_loss
 
     def get_user_ratings(self, user):
         user_embeddings, item_embeddings = self.forward()

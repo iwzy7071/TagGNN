@@ -4,6 +4,7 @@ from utils import evalulate_one_batch
 from torch import optim
 import logging
 from torch.utils.data.dataloader import DataLoader
+from os.path import join
 
 from model.BaseModel import BaseModel
 from model.ModelFactory import ModelFactory
@@ -11,7 +12,7 @@ from data.Data import Data
 from data.Dataset import RSTrainDataset, RSTestDataset, collate_fn
 
 
-def Train(config: dict, model: BaseModel, dataloader: DataLoader, optimizer: optim.Optimizer):
+def Train(model: BaseModel, dataloader: DataLoader, optimizer: optim.Optimizer):
     model = model.train()
     average_loss = 0.0
 
@@ -63,30 +64,42 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 
 if __name__ == '__main__':
-    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="/home/wzy/LightGCN/data/amazon_toy", lr=5e-3,
-                  train_batch_size=1024, n_iter=2, num_layers=1, dropout=0, ncaps=4, item_min_inter=20,
-                  user_min_inter=20, test_batch_size=1024, weight_decay=1e-3, nfeat=64, split_ratios=[0.8, 0.2])
-    logging.basicConfig(level=logging.INFO, filename=f'{config["name"]}.log', filemode='w')
+    # 配置基本的环境
+    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="amazon_toy", lr=5e-3,
+                  train_batch_size=1024, test_batch_size=1024)
+    dataset_path = join("/home/wzy/LightGCN/data", config["dataset"])
+    log_path = join("/home/wzy/LightGCN/log", f"{config['name']}_{config['dataset']}_128.log")
+    save_model_path = join("/home/wzy/LightGCN/save_pt", f"{config['name']}_{config['dataset']}_32.pt")
+
+    # 生成日志信息
+    logging.basicConfig(level=logging.INFO, filename=log_path, filemode='w')
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
     logging.info(config)
 
-    data = Data(dir_path=config["dataset"], split_ratios=config['split_ratios'], item_min_inter=config['item_min_inter'],
-                user_min_inter=config['user_min_inter'])
+    # 处理数据集
+    data = Data(user_column_name="user_id:token", item_column_name="item_id:token",
+                tag_column_name="genre:token_seq", dir_path=dataset_path,
+                split_ratios=[0.8, 0.2], item_min_inter=5, user_min_inter=5)
+
     train_dataset = RSTrainDataset(data.train_Gmatrix)
     test_dataset = RSTestDataset(data.train_Gmatrix, data.test_Gmatrix)
     train_dataloader = DataLoader(train_dataset, batch_size=config["train_batch_size"], num_workers=8, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config["test_batch_size"], num_workers=8,
                                  collate_fn=collate_fn)
 
-    model = ModelFactory.get_model(config["name"], config, data).cuda()
+    # 创建模型
+    model = ModelFactory.get_model(config["name"], data).cuda()
     optimizer = optim.Adam(model.parameters(), lr=config['lr'])
-
+    best_recall = 0
     for epoch in range(config["epoch"]):
-        loss = Train(config, model, train_dataloader, optimizer)
+        loss = Train(model, train_dataloader, optimizer)
         if epoch % 5 == 0:
             results = Test(config, model, test_dataloader)
             pred, recall, ndcg = results["precision"], results["recall"], results["ndcg"]
+            if recall > best_recall:
+                best_recall = recall
+                torch.save(model.state_dict(), save_model_path)
             logging.info(f"epoch:{epoch} pred:{pred} recall:{recall} ndcg:{ndcg} loss:{loss}")
         else:
             logging.info(f"epoch:{epoch} loss:{loss}")

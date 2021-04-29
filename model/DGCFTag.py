@@ -10,11 +10,9 @@ from recbole.model.loss import BPRLoss, EmbLoss
 from model.BaseModel import BaseModel
 
 
-# 达到及以上就牛逼 0.05
-
 class DGCFTAG(BaseModel):
     def __init__(self, num_users: int, num_items: int, nfeat: int, ncaps: int, n_iter: int, num_layers: int,
-                 dropout: float, interaction_matrix: csr_matrix, tag_table: dict, drop_tag_ratio=0.3):
+                 dropout: float, interaction_matrix: csr_matrix, tag_table: dict, drop_tag_ratio: float, reg_w: float):
         super(DGCFTAG, self).__init__()
         interaction_matrix = interaction_matrix.tocoo().astype(np.float32)
         self.num_items = num_items
@@ -53,6 +51,7 @@ class DGCFTAG(BaseModel):
         self.dropout = nn.Dropout(p=0.5)
         self.mf_loss = BPRLoss()
         self.reg_loss = EmbLoss()
+        self.reg_w = reg_w
         self.apply(xavier_normal_initialization)
 
     def _build_sparse_tensor(self, indices, values, size):
@@ -136,7 +135,7 @@ class DGCFTAG(BaseModel):
         pos_ego_embeddings = self.item_embedding(pos_item)
         neg_ego_embeddings = self.item_embedding(neg_item)
         reg_loss = self.reg_loss(u_ego_embeddings, pos_ego_embeddings, neg_ego_embeddings)
-        return mf_loss + 1e-3 * reg_loss
+        return mf_loss + self.reg_w * reg_loss
 
     def get_user_ratings(self, user):
         user_embeddings, item_embeddings = self.forward()

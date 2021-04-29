@@ -1,21 +1,14 @@
-#!/usr/bin/env python3
-#
-# This is an alternative implementation of our model,
-#   inspired by https://github.com/rusty1s/pytorch_geometric.
-# This newer version is likely more stable, efficient, and scalable.
-#
-# However, I haven't have the time to test this version yet.
-# So no guarantee on this version's correctness.
-#
-# This is NOT the version for producing the results reported in the paper.
-#
 import numpy as np
 import torch
 import torch.autograd
 import torch.nn as nn
 import torch.nn.functional as fn
+from scipy.sparse import csr_matrix
+from recbole.model.init import xavier_normal_initialization
+from recbole.model.loss import BPRLoss, EmbLoss
 
 from model.BaseModel import BaseModel
+
 
 class NeibRoutLayer(nn.Module):
     def __init__(self, num_caps, niter, tau=1.0):
@@ -24,15 +17,6 @@ class NeibRoutLayer(nn.Module):
         self.niter = niter
         self.tau = tau
 
-    #
-    # x \in R^{n \times d}: d-dimensional node representations.
-    #    It can be node features, output of the previous layer,
-    #    or even rows of the adjacency matrix.
-    #
-    # src_trg \in R^{2 \times m}: a list that contains m edges.
-    #    src means the source nodes of the edges, and
-    #    trg means the target nodes of the edges.
-    #
     def forward(self, x, src_trg):
         m, src, trg = src_trg.shape[1], src_trg[0], src_trg[1]
         n, d = x.shape
@@ -48,47 +32,59 @@ class NeibRoutLayer(nn.Module):
             u = torch.zeros(n, d, device=x.device)
             u.scatter_add_(0, scatter_idx, scatter_src)
             u += x
-            # noinspection PyArgumentList
             u = fn.normalize(u.view(n, k, delta_d), dim=2).view(n, d)
         return u
 
 
 class DisenGCN(BaseModel):
-    #
-    # nfeat: dimension of a node's input feature
-    # nclass: the number of target classes
-    # hyperpm: the hyper-parameter configuration
-    #    ncaps: the number of capsules/channels/factors per layer
-    #    routit: routing iterations
-    #
-    def __init__(self, nfeat, nclass, hyperpm, split_mlp=False):
+    def __init__(self, num_users: int, num_items: int, nfeat: int, ncaps: int, num_layers: int,
+                 interaction_matrix: csr_matrix):
         super(DisenGCN, self).__init__()
-        self.pca = SparseInputLinear(nfeat, hyperpm.ncaps * hyperpm.nhidden)
-        conv_ls = []
-        for i in range(hyperpm.nlayer):
-            conv = NeibRoutLayer(hyperpm.ncaps, hyperpm.routit)
-            self.add_module('conv_%d' % i, conv)
-            conv_ls.append(conv)
-        self.conv_ls = conv_ls
-        if split_mlp:
-            self.clf = SplitMLP(nclass, hyperpm.nhidden * hyperpm.ncaps,
-                                nclass)
-        else:
-            self.clf = nn.Linear(hyperpm.nhidden * hyperpm.ncaps, nclass)
-        self.dropout = hyperpm.dropout
+        self.linear = SparseInputLinear(nfeat, nfeat)
+        self.conv = NeibRoutLayer(ncaps, num_layers)
+        interaction_matrix = interaction_matrix.tocoo().astype(np.float32)
+        row = interaction_matrix.row.tolist()
+        col = interaction_matrix.col.tolist()
+        col = [iid + num_users for iid in col]
 
-    def _dropout(self, x):
-        return fn.dropout(x, self.dropout, training=self.training)
+        self.edge_index = torch.LongTensor([row + col, col + row]).to('cuda')
+        self.user_embedding = nn.Embedding(num_users, nfeat)
+        self.item_embedding = nn.Embedding(num_items, nfeat)
+        self.num_users = num_users
+        self.mf_loss = BPRLoss()
+        self.reg_loss = EmbLoss()
+        self.apply(xavier_normal_initialization)
 
-    def forward(self, x, src_trg):
-        x = self._dropout(fn.leaky_relu(self.pca(x)))
-        for conv in self.conv_ls:
-            x = self._dropout(fn.leaky_relu(conv(x, src_trg)))
-        x = self.clf(x)
-        return x
+    def forward(self):
+        x = torch.cat([self.user_embedding.weight, self.item_embedding.weight], dim=0)
+        x = fn.leaky_relu(self.linear(x))
+        x = self.conv(x, self.edge_index)
+        u_g_embeddings, i_g_embeddings = x[:self.num_users, :], x[self.num_users:, :]
+        return u_g_embeddings, i_g_embeddings
+
+    def calculate_loss(self, user, pos_item, neg_item):
+        user_all_embeddings, item_all_embeddings = self.forward()
+        u_embeddings = user_all_embeddings[user]
+        pos_embeddings = item_all_embeddings[pos_item]
+        neg_embeddings = item_all_embeddings[neg_item]
+
+        pos_scores = torch.mul(u_embeddings, pos_embeddings).sum(dim=1)
+        neg_scores = torch.mul(u_embeddings, neg_embeddings).sum(dim=1)
+        mf_loss = self.mf_loss(pos_scores, neg_scores)
+
+        u_ego_embeddings = self.user_embedding(user)
+        pos_ego_embeddings = self.item_embedding(pos_item)
+        neg_ego_embeddings = self.item_embedding(neg_item)
+        reg_loss = self.reg_loss(u_ego_embeddings, pos_ego_embeddings, neg_ego_embeddings)
+        return mf_loss + 1e-3 * reg_loss
+
+    def get_user_ratings(self, user):
+        user_embeddings, item_embeddings = self.forward()
+        u_embeddings = user_embeddings[user]
+        rating = torch.matmul(u_embeddings, item_embeddings.t())
+        return rating
 
 
-# noinspection PyUnresolvedReferences
 class SparseInputLinear(nn.Module):
     def __init__(self, inp_dim, out_dim):
         super(SparseInputLinear, self).__init__()
@@ -105,22 +101,5 @@ class SparseInputLinear(nn.Module):
         self.weight.data.uniform_(-stdv, stdv)
         self.bias.data.uniform_(-stdv, stdv)
 
-    def forward(self, x):  # *nn.Linear* does not accept sparse *x*.
-        return torch.mm(x, self.weight) + self.bias
-
-
-class SplitMLP(nn.Module):
-    def __init__(self, n_mlp, d_inp, d_out):
-        super(SplitMLP, self).__init__()
-        assert d_inp >= n_mlp and d_inp % n_mlp == 0
-        assert d_out >= n_mlp and d_out % n_mlp == 0
-        self.mlps = nn.Conv1d(in_channels=n_mlp, out_channels=d_out,
-                              kernel_size=d_inp // n_mlp, groups=n_mlp)
-        self.n_mlp = n_mlp
-
     def forward(self, x):
-        n = x.shape[0]
-        x = x.view(n, self.n_mlp, -1)
-        x = self.mlps(x)
-        x = x.view(n, -1)
-        return x
+        return torch.mm(x, self.weight) + self.bias

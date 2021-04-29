@@ -7,36 +7,47 @@ from scipy.sparse import csr_matrix
 from model.BaseModel import BaseModel
 
 
-class LightGCN(BaseModel):
+class LightGCNTag(BaseModel):
     def __init__(self, num_users: int, num_items: int, nfeat: int, num_layers: int, dropout: float,
-                 interaction_matrix: csr_matrix, reg_w):
-        super(LightGCN, self).__init__()
-        self.interaction_matrix = interaction_matrix.tocoo()
+                 interaction_matrix: csr_matrix, reg_w: float, tag_table: dict, drop_tag_ratio: float):
+        super(LightGCNTag, self).__init__()
         self.num_layers = num_layers
         self.num_users = num_users
         self.num_items = num_items
-        self.dropout = dropout
+        iid_tedge, tid_tedge = self._prepare_node_information_(tag_table, drop_tag_ratio)
 
         self.user_embedding = torch.nn.Embedding(num_embeddings=self.num_users, embedding_dim=nfeat)
         self.item_embedding = torch.nn.Embedding(num_embeddings=self.num_items, embedding_dim=nfeat)
+        self.tag_embedding = torch.nn.Embedding(num_embeddings=self.num_tags, embedding_dim=nfeat)
+
+        iid_tedge = [iid + self.num_users for iid in iid_tedge]
+        tid_tedge = [tid + self.num_users + self.num_items for tid in tid_tedge]
+
         self.mf_loss = BPRLoss()
         self.reg_loss = EmbLoss()
-        self.norm_adj_matrix = self.get_norm_adj_mat().to('cuda')
+        self.norm_adj_matrix = self.get_norm_adj_mat(interaction_matrix, iid_tedge, tid_tedge).to('cuda')
         self.reg_w = reg_w
         self.apply(xavier_uniform_initialization)
 
-    def get_norm_adj_mat(self):
-        A = sp.dok_matrix((self.num_users + self.num_items, self.num_users + self.num_items), dtype=np.float32)
-        inter_M = self.interaction_matrix
-        inter_M_t = self.interaction_matrix.transpose()
-        data_dict = dict(zip(zip(inter_M.row, inter_M.col + self.num_users), [1] * inter_M.nnz))
-        data_dict.update(dict(zip(zip(inter_M_t.row + self.num_users, inter_M_t.col), [1] * inter_M_t.nnz)))
-        A._update(data_dict)
-        sumArr = (A > 0).sum(axis=1)
+    def get_norm_adj_mat(self, interaction_matrix, iid_tedge, tid_tedge):
+        dok_matrix = sp.dok_matrix((self.num_users + self.num_items + self.num_tags,
+                                    self.num_users + self.num_items + self.num_tags), dtype=np.float32)
+        interaction_matrix_t = interaction_matrix.transpose()
+        data_dict = dict(
+            zip(zip(interaction_matrix.row, interaction_matrix.col + self.num_users), [1] * interaction_matrix_t.nnz))
+        data_dict.update(dict(zip(zip(interaction_matrix_t.row + self.num_users, interaction_matrix_t.col),
+                                  [1] * interaction_matrix_t.nnz)))
+        dok_matrix._update(data_dict)
+
+        data_dict = dict(zip(zip(iid_tedge, tid_tedge), [1] * len(iid_tedge)))
+        data_dict.update(dict(zip(zip(tid_tedge, iid_tedge), [1] * len(iid_tedge))))
+        dok_matrix._update(data_dict)
+
+        sumArr = (dok_matrix > 0).sum(axis=1)
         diag = np.array(sumArr.flatten())[0] + 1e-7
         diag = np.power(diag, -0.5)
         D = sp.diags(diag)
-        L = D * A * D
+        L = D * dok_matrix * D
         L = sp.coo_matrix(L)
         row = L.row
         col = L.col
@@ -79,3 +90,17 @@ class LightGCN(BaseModel):
         u_embeddings = user_embeddings[user]
         rating = torch.matmul(u_embeddings, item_embeddings.t())
         return rating
+
+    def _prepare_node_information_(self, tag_table: dict, drop_tag_ratio=0.1):
+        self.num_tags = max([int(key) for key in tag_table.keys()]) + 1
+        tag_table = sorted(tag_table.items(), key=lambda x: len(x[1]), reverse=True)
+        drop_tag_index = int(len(tag_table) * drop_tag_ratio)
+        tag_table = tag_table[drop_tag_index:]
+        src, trg = [], []
+
+        for tid, iids in tag_table:
+            for iid in iids:
+                src.append(int(iid))
+            trg.extend([int(tid)] * len(iids))
+
+        return src, trg
