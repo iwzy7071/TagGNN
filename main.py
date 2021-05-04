@@ -65,10 +65,10 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 if __name__ == '__main__':
     # 配置基本的环境
-    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="amazon_toy", lr=5e-3,
+    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="diginetica", lr=5e-3,
                   train_batch_size=1024, test_batch_size=1024)
     dataset_path = join("/home/wzy/LightGCN/data", config["dataset"])
-    log_path = join("/home/wzy/LightGCN/log", f"{config['name']}_{config['dataset']}_128.log")
+    log_path = join("/home/wzy/LightGCN/log", f"{config['name']}_{config['dataset']}_ncap2.log")
     save_model_path = join("/home/wzy/LightGCN/save_pt", f"{config['name']}_{config['dataset']}_32.pt")
 
     # 生成日志信息
@@ -84,8 +84,8 @@ if __name__ == '__main__':
 
     train_dataset = RSTrainDataset(data.train_Gmatrix)
     test_dataset = RSTestDataset(data.train_Gmatrix, data.test_Gmatrix)
-    train_dataloader = DataLoader(train_dataset, batch_size=config["train_batch_size"], num_workers=8, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=config["test_batch_size"], num_workers=8,
+    train_dataloader = DataLoader(train_dataset, batch_size=config["train_batch_size"], num_workers=4, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config["test_batch_size"], num_workers=4,
                                  collate_fn=collate_fn)
 
     # 创建模型

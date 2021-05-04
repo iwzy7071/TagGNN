@@ -22,8 +22,8 @@ class ModelFactory:
             return LightGCN(num_users=dataloader.n_user, num_items=dataloader.n_item, nfeat=64,
                             num_layers=3, dropout=0, interaction_matrix=dataloader.train_Gmatrix, reg_w=1e-3)
         if model_name == 'DGCFTag':
-            return DGCFTAG(num_users=dataloader.n_user, num_items=dataloader.n_item, nfeat=128,
-                           ncaps=4, n_iter=4, num_layers=1, dropout=0, interaction_matrix=dataloader.train_Gmatrix,
+            return DGCFTAG(num_users=dataloader.n_user, num_items=dataloader.n_item, nfeat=64,
+                           ncaps=2, n_iter=3, num_layers=1, dropout=0, interaction_matrix=dataloader.train_Gmatrix,
                            tag_table=dataloader.tag_tables, drop_tag_ratio=0.3, reg_w=1e-3)
         if model_name == 'GIN':
             return GIN(num_users=dataloader.n_user, num_items=dataloader.n_item, nfeat=64, num_layers=3,
