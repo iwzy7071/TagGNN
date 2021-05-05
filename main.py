@@ -1,3 +1,5 @@
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 import torch
 import numpy as np
 from utils import evalulate_one_batch
@@ -8,8 +10,9 @@ from os.path import join
 
 from model.BaseModel import BaseModel
 from model.ModelFactory import ModelFactory
-from data.Data import Data
+# from data.Data import Data
 from data.Dataset import RSTrainDataset, RSTestDataset, collate_fn
+from data.special.code_start_data import Data
 
 
 def Train(model: BaseModel, dataloader: DataLoader, optimizer: optim.Optimizer):
@@ -65,11 +68,11 @@ def Test(config: dict, model: BaseModel, dataloader: DataLoader):
 
 if __name__ == '__main__':
     # 配置基本的环境
-    config = dict(epoch=500, topks=[20], name="DGCFTag", dataset="diginetica", lr=5e-3,
+    config = dict(epoch=501, topks=[20], name="LightGCN", dataset="diginetica", lr=5e-3,
                   train_batch_size=1024, test_batch_size=1024)
     dataset_path = join("/home/wzy/LightGCN/data", config["dataset"])
-    log_path = join("/home/wzy/LightGCN/log", f"{config['name']}_{config['dataset']}_ncap2.log")
-    save_model_path = join("/home/wzy/LightGCN/save_pt", f"{config['name']}_{config['dataset']}_32.pt")
+    log_path = join("/home/wzy/LightGCN/log", f"{config['name']}_{config['dataset']}_cold.log")
+    save_model_path = join("/home/wzy/LightGCN/save_pt", f"{config['name']}_{config['dataset']}.pt")
 
     # 生成日志信息
     logging.basicConfig(level=logging.INFO, filename=log_path, filemode='w')
@@ -91,7 +94,7 @@ if __name__ == '__main__':
     # 创建模型
     model = ModelFactory.get_model(config["name"], data).cuda()
     optimizer = optim.Adam(model.parameters(), lr=config['lr'])
-    best_recall = 0
+    # best_recall = 0
     for epoch in range(config["epoch"]):
         loss = Train(model, train_dataloader, optimizer)
         if epoch % 5 == 0:
